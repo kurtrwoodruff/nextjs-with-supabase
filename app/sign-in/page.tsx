@@ -2,13 +2,13 @@
 import { useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 
-// Create a client with your public env vars
+// Supabase browser client using public env vars
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-// Allowlist of school email domains (MVP: SCU only)
+// MVP: allow SCU only
 const ALLOWED_DOMAINS = ["scu.edu"];
 
 export default function SignInPage() {
@@ -16,28 +16,27 @@ export default function SignInPage() {
   const [msg, setMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
- async function handleSubmit(e: React.FormEvent) {
-  e.preventDefault();
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
 
-  // domain check (keep yours)
-  const domain = email.split("@")[1]?.toLowerCase();
-  if (!domain || !domain.endsWith(".edu") || !ALLOWED_DOMAINS.includes(domain)) {
-    setMsg("Campus Keys is currently limited to SCU (.scu.edu) emails.");
-    return;
+    // Block non-.edu / non-allowed domains
+    const domain = email.split("@")[1]?.toLowerCase();
+    if (!domain || !domain.endsWith(".edu") || !ALLOWED_DOMAINS.includes(domain)) {
+      setMsg("Campus Keys is currently limited to SCU (.scu.edu) emails.");
+      return;
+    }
+
+    setLoading(true);
+
+    // Send magic link to the starter's callback route
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: "https://campus-keys.vercel.app/auth/callback" },
+    });
+
+    setLoading(false);
+    setMsg(error ? error.message : "Check your inbox for the magic link!");
   }
-
-  setLoading(true);
-
-  // Send magic link to the callback route
-  const { error } = await supabase.auth.signInWithOtp({
-    email,
-    options: { emailRedirectTo: "https://campus-keys.vercel.app/auth/callback" },
-  });
-
-  setLoading(false);
-  setMsg(error ? error.message : "Check your inbox for the magic link!");
-}
-
 
   return (
     <main className="min-h-screen flex items-center justify-center p-6">
@@ -65,3 +64,4 @@ export default function SignInPage() {
     </main>
   );
 }
+
