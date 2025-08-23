@@ -22,9 +22,18 @@ export default function SignInPage() {
       return;
     }
     setLoading(true);
-    const { error } = await supabase.auth.signInWithOtp({ email });
-    setLoading(false);
-    setMsg(error ? error.message : "Check your inbox for the magic link!");
+
+// Build a redirect that always points back to your deployed site
+const redirectTo = `${window.location.origin}/mode-select`;
+
+const { error } = await supabase.auth.signInWithOtp({
+  email,
+  options: { emailRedirectTo: redirectTo },
+});
+
+setLoading(false);
+setMsg(error ? error.message : "Check your inbox for the magic link!");
+
   }
 
   return (
