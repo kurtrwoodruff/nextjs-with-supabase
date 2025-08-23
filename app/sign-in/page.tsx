@@ -28,7 +28,7 @@ const redirectTo = "https://campus-keys.vercel.app/mode-select";
 
 const { error } = await supabase.auth.signInWithOtp({
   email,
-  options: { emailRedirectTo: redirectTo },
+  options: { emailRedirectTo: "https://campus-keys.vercel.app/mode-select" },
 });
 
 setLoading(false);
