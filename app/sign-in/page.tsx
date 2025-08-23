@@ -31,10 +31,11 @@ export default function SignInPage() {
     // Force the magic link to return to your deployed site
     const redirectTo = "https://campus-keys.vercel.app/mode-select";
 
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: redirectTo },
-    });
+const { error } = await supabase.auth.signInWithOtp({
+  email,
+  options: { emailRedirectTo: "https://campus-keys.vercel.app/auth/callback" },
+});
+
 
     setLoading(false);
     setMsg(error ? error.message : "Check your inbox for the magic link!");
