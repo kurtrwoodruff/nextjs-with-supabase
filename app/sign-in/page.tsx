@@ -24,7 +24,7 @@ export default function SignInPage() {
     setLoading(true);
 
 // Build a redirect that always points back to your deployed site
-const redirectTo = `${window.location.origin}/mode-select`;
+const redirectTo = "https://campus-keys.vercel.app/mode-select";
 
 const { error } = await supabase.auth.signInWithOtp({
   email,
