@@ -1,25 +1,38 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 
-// Supabase browser client using public env vars
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-// MVP: allow SCU only
+// MVP: only allow SCU for now
 const ALLOWED_DOMAINS = ["scu.edu"];
 
-export default function SignInPage() {
+export default function SignInOTP() {
+  const router = useRouter();
+
+  const [step, setStep] = useState<"request" | "verify">("request");
   const [email, setEmail] = useState("");
-  const [msg, setMsg] = useState<string | null>(null);
+  const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
 
-  async function handleSubmit(e: React.FormEvent) {
+  // If you're already signed in, skip this page
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.auth.getUser();
+      if (data.user) router.replace("/mode-select");
+    })();
+  }, [router]);
+
+  async function requestCode(e: React.FormEvent) {
     e.preventDefault();
+    setMsg(null);
 
-    // Block non-.edu / non-allowed domains
+    // basic domain guard
     const domain = email.split("@")[1]?.toLowerCase();
     if (!domain || !domain.endsWith(".edu") || !ALLOWED_DOMAINS.includes(domain)) {
       setMsg("Campus Keys is currently limited to SCU (.scu.edu) emails.");
@@ -27,41 +40,103 @@ export default function SignInPage() {
     }
 
     setLoading(true);
-
-    // Send magic link to the starter's callback route
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: "https://campus-keys.vercel.app/auth/callback" },
+      options: {
+        shouldCreateUser: true, // create user if first time
+      },
     });
-
     setLoading(false);
-    setMsg(error ? error.message : "Check your inbox for the magic link!");
+
+    if (error) {
+      setMsg(error.message);
+    } else {
+      setMsg("We emailed you a 6-digit code. Enter it below.");
+      setStep("verify");
+    }
+  }
+
+  async function verifyCode(e: React.FormEvent) {
+    e.preventDefault();
+    setMsg(null);
+
+    if (!/^\d{6}$/.test(code.trim())) {
+      setMsg("Please enter the 6-digit code.");
+      return;
+    }
+
+    setLoading(true);
+    const { error } = await supabase.auth.verifyOtp({
+      email,
+      token: code.trim(),
+      type: "email", // verifies Email OTP
+    });
+    setLoading(false);
+
+    if (error) {
+      setMsg(error.message || "Invalid or expired code. Request a new one.");
+    } else {
+      router.replace("/mode-select");
+    }
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center p-6">
-      <form onSubmit={handleSubmit} className="w-full max-w-sm bg-white p-6 rounded-2xl shadow">
-        <h1 className="text-2xl font-semibold mb-4">Sign in to Campus Keys</h1>
+    <main className="min-h-screen grid place-items-center p-6">
+      <div className="w-full max-w-sm bg-white p-6 rounded-2xl shadow space-y-4">
+        <h1 className="text-2xl font-semibold">Sign in to Campus Keys</h1>
 
-        <input
-          type="email"
-          required
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="you@scu.edu"
-          className="w-full border rounded-xl px-4 py-3 mb-3"
-        />
+        {step === "request" && (
+          <form onSubmit={requestCode} className="space-y-3">
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@scu.edu"
+              className="w-full border rounded-xl px-4 py-3"
+            />
+            <button
+              disabled={loading}
+              className="w-full rounded-xl px-4 py-3 bg-black text-white disabled:opacity-60"
+            >
+              {loading ? "Sending..." : "Send code"}
+            </button>
+          </form>
+        )}
 
-        <button
-          disabled={loading}
-          className="w-full rounded-xl px-4 py-3 bg-black text-white disabled:opacity-60"
-        >
-          {loading ? "Sending..." : "Send magic link"}
-        </button>
+        {step === "verify" && (
+          <form onSubmit={verifyCode} className="space-y-3">
+            <label className="text-sm text-gray-600 block">
+              Enter the 6-digit code sent to <strong>{email}</strong>
+            </label>
+            <input
+              inputMode="numeric"
+              pattern="\d{6}"
+              maxLength={6}
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+              placeholder="123456"
+              className="w-full border rounded-xl px-4 py-3 tracking-widest text-center"
+            />
+            <button
+              disabled={loading}
+              className="w-full rounded-xl px-4 py-3 bg-black text-white disabled:opacity-60"
+            >
+              {loading ? "Verifying..." : "Verify code"}
+            </button>
 
-        {msg && <p className="text-sm mt-3">{msg}</p>}
-      </form>
+            <button
+              type="button"
+              onClick={() => setStep("request")}
+              className="w-full text-sm underline mt-2"
+            >
+              Use a different email
+            </button>
+          </form>
+        )}
+
+        {msg && <p className="text-sm mt-2">{msg}</p>}
+      </div>
     </main>
   );
 }
-
