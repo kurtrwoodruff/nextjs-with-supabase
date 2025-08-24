@@ -1,5 +1,6 @@
 "use client";
-import { useState, useEffect } from "react";
+
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 
@@ -8,19 +9,24 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-// MVP: only allow SCU for now
+// ⬇️ Only allow these school domains (edit as you expand)
 const ALLOWED_DOMAINS = ["scu.edu"];
 
-export default function SignInOTP() {
+type Step = "request" | "verify";
+
+export default function SignInPage() {
   const router = useRouter();
 
-  const [step, setStep] = useState<"request" | "verify">("request");
+  const [step, setStep] = useState<Step>("request");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
-  const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  // If you're already signed in, skip this page
+  // Simple cooldown for resend
+  const [cooldown, setCooldown] = useState(0);
+
+  // If already logged in, skip to mode-select
   useEffect(() => {
     (async () => {
       const { data } = await supabase.auth.getUser();
@@ -28,13 +34,22 @@ export default function SignInOTP() {
     })();
   }, [router]);
 
-  async function requestCode(e: React.FormEvent) {
+  useEffect(() => {
+    if (!cooldown) return;
+    const t = setInterval(() => setCooldown((c) => (c > 0 ? c - 1 : 0)), 1000);
+    return () => clearInterval(t);
+  }, [cooldown]);
+
+  function domainAllowed(address: string) {
+    const d = address.split("@")[1]?.toLowerCase().trim();
+    return d && d.endsWith(".edu") && ALLOWED_DOMAINS.includes(d);
+  }
+
+  async function handleSendCode(e: React.FormEvent) {
     e.preventDefault();
     setMsg(null);
 
-    // basic domain guard
-    const domain = email.split("@")[1]?.toLowerCase();
-    if (!domain || !domain.endsWith(".edu") || !ALLOWED_DOMAINS.includes(domain)) {
+    if (!domainAllowed(email)) {
       setMsg("Campus Keys is currently limited to SCU (.scu.edu) emails.");
       return;
     }
@@ -43,24 +58,29 @@ export default function SignInOTP() {
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        shouldCreateUser: true, // create user if first time
+        shouldCreateUser: true,
+        // 🔴 forces Supabase to send a numeric code (not a magic link)
+        emailOtpType: "code",
       },
     });
     setLoading(false);
 
     if (error) {
-      setMsg(error.message);
-    } else {
-      setMsg("We emailed you a 6-digit code. Enter it below.");
-      setStep("verify");
+      setMsg(error.message || "Could not send code. Try again.");
+      return;
     }
+
+    setMsg("We emailed you a 6-digit code. Enter it below.");
+    setStep("verify");
+    setCooldown(30); // 30s resend cooldown
   }
 
-  async function verifyCode(e: React.FormEvent) {
+  async function handleVerify(e: React.FormEvent) {
     e.preventDefault();
     setMsg(null);
 
-    if (!/^\d{6}$/.test(code.trim())) {
+    const cleaned = code.replace(/\D/g, "").trim();
+    if (!/^\d{6}$/.test(cleaned)) {
       setMsg("Please enter the 6-digit code.");
       return;
     }
@@ -68,25 +88,45 @@ export default function SignInOTP() {
     setLoading(true);
     const { error } = await supabase.auth.verifyOtp({
       email,
-      token: code.trim(),
-      type: "email", // verifies Email OTP
+      token: cleaned,
+      type: "email", // <- verify Email OTP
     });
     setLoading(false);
 
     if (error) {
       setMsg(error.message || "Invalid or expired code. Request a new one.");
-    } else {
-      router.replace("/mode-select");
+      return;
+    }
+
+    // success
+    router.replace("/mode-select");
+  }
+
+  async function handleResend() {
+    if (cooldown > 0 || !email) return;
+    setMsg(null);
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        shouldCreateUser: true,
+        emailOtpType: "code",
+      },
+    });
+    if (error) setMsg(error.message || "Could not resend code.");
+    else {
+      setMsg("New code sent.");
+      setCooldown(30);
     }
   }
 
   return (
     <main className="min-h-screen grid place-items-center p-6">
-      <div className="w-full max-w-sm bg-white p-6 rounded-2xl shadow space-y-4">
+      <div className="w-full max-w-sm bg-white p-6 rounded-2xl shadow space-y-5">
         <h1 className="text-2xl font-semibold">Sign in to Campus Keys</h1>
 
         {step === "request" && (
-          <form onSubmit={requestCode} className="space-y-3">
+          <form onSubmit={handleSendCode} className="space-y-3">
+            <label className="text-sm text-gray-600">SCU email</label>
             <input
               type="email"
               required
@@ -99,16 +139,16 @@ export default function SignInOTP() {
               disabled={loading}
               className="w-full rounded-xl px-4 py-3 bg-black text-white disabled:opacity-60"
             >
-              {loading ? "Sending..." : "Send code"}
+              {loading ? "Sending…" : "Send code"}
             </button>
           </form>
         )}
 
         {step === "verify" && (
-          <form onSubmit={verifyCode} className="space-y-3">
-            <label className="text-sm text-gray-600 block">
+          <form onSubmit={handleVerify} className="space-y-3">
+            <p className="text-sm text-gray-600">
               Enter the 6-digit code sent to <strong>{email}</strong>
-            </label>
+            </p>
             <input
               inputMode="numeric"
               pattern="\d{6}"
@@ -122,20 +162,38 @@ export default function SignInOTP() {
               disabled={loading}
               className="w-full rounded-xl px-4 py-3 bg-black text-white disabled:opacity-60"
             >
-              {loading ? "Verifying..." : "Verify code"}
+              {loading ? "Verifying…" : "Verify code"}
             </button>
 
             <button
               type="button"
-              onClick={() => setStep("request")}
-              className="w-full text-sm underline mt-2"
+              onClick={handleResend}
+              disabled={cooldown > 0}
+              className="w-full text-sm underline disabled:opacity-50 mt-1"
+            >
+              {cooldown > 0 ? `Resend in ${cooldown}s` : "Resend code"}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setStep("request");
+                setCode("");
+                setMsg(null);
+              }}
+              className="w-full text-sm underline"
             >
               Use a different email
             </button>
           </form>
         )}
 
-        {msg && <p className="text-sm mt-2">{msg}</p>}
+        {msg && <p className="text-sm">{msg}</p>}
+
+        <p className="text-xs text-gray-500">
+          By continuing you agree to the Campus Keys Terms. Codes expire quickly
+          for security.
+        </p>
       </div>
     </main>
   );
