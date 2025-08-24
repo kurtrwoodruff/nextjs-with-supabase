@@ -9,7 +9,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-// ⬇️ Only allow these school domains (edit as you expand)
+// Allow list (edit as you expand)
 const ALLOWED_DOMAINS = ["scu.edu"];
 
 type Step = "request" | "verify";
@@ -22,11 +22,9 @@ export default function SignInPage() {
   const [code, setCode] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-
-  // Simple cooldown for resend
   const [cooldown, setCooldown] = useState(0);
 
-  // If already logged in, skip to mode-select
+  // If already logged in, go to next step
   useEffect(() => {
     (async () => {
       const { data } = await supabase.auth.getUser();
@@ -34,6 +32,7 @@ export default function SignInPage() {
     })();
   }, [router]);
 
+  // resend cooldown tick
   useEffect(() => {
     if (!cooldown) return;
     const t = setInterval(() => setCooldown((c) => (c > 0 ? c - 1 : 0)), 1000);
@@ -59,8 +58,7 @@ export default function SignInPage() {
       email,
       options: {
         shouldCreateUser: true,
-        // 🔴 forces Supabase to send a numeric code (not a magic link)
-        emailOtpType: "code",
+        // IMPORTANT: do NOT set emailRedirectTo here (keeps it OTP-only)
       },
     });
     setLoading(false);
@@ -72,7 +70,7 @@ export default function SignInPage() {
 
     setMsg("We emailed you a 6-digit code. Enter it below.");
     setStep("verify");
-    setCooldown(30); // 30s resend cooldown
+    setCooldown(30);
   }
 
   async function handleVerify(e: React.FormEvent) {
@@ -89,7 +87,7 @@ export default function SignInPage() {
     const { error } = await supabase.auth.verifyOtp({
       email,
       token: cleaned,
-      type: "email", // <- verify Email OTP
+      type: "email", // verify Email OTP
     });
     setLoading(false);
 
@@ -98,7 +96,6 @@ export default function SignInPage() {
       return;
     }
 
-    // success
     router.replace("/mode-select");
   }
 
@@ -107,10 +104,7 @@ export default function SignInPage() {
     setMsg(null);
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: {
-        shouldCreateUser: true,
-        emailOtpType: "code",
-      },
+      options: { shouldCreateUser: true },
     });
     if (error) setMsg(error.message || "Could not resend code.");
     else {
@@ -191,8 +185,7 @@ export default function SignInPage() {
         {msg && <p className="text-sm">{msg}</p>}
 
         <p className="text-xs text-gray-500">
-          By continuing you agree to the Campus Keys Terms. Codes expire quickly
-          for security.
+          Codes expire quickly for security.
         </p>
       </div>
     </main>
